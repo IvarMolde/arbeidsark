@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { LEVELS, type CEFRLevel } from "@/data/levels";
 import { DOMAINS } from "@/data/domains";
 import { TASK_TYPES, type TaskTypeId } from "@/data/taskTypes";
@@ -188,7 +188,6 @@ export default function Generator() {
       }
       setWorksheet(normalizeInteractiveTasks(data.worksheet));
       setShowResult(true);
-      window.scrollTo({ top: 0, behavior: "auto" });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Noe gikk galt. Prøv igjen.",
@@ -211,13 +210,25 @@ export default function Generator() {
     downloadBlob(blob, `${prefix}-${safeName || "norsk"}.docx`);
   };
 
-  useEffect(() => {
-    if (!showResult) return;
+  useLayoutEffect(() => {
+    if (!showResult) {
+      document.body.classList.remove("result-open");
+      return;
+    }
+    document.body.classList.add("result-open");
+    window.scrollTo(0, 0);
     document.getElementById("result-title")?.focus();
+    return () => document.body.classList.remove("result-open");
   }, [showResult]);
 
   return (
     <>
+      {loading && (
+        <div className="generate-overlay" role="status" aria-live="polite">
+          <p className="generate-overlay-title">Lager arbeidsarket</p>
+          <p>Dette kan ta litt tid. Arket vises øverst på siden når det er klart.</p>
+        </div>
+      )}
       {showResult && worksheet ? (
         <div className="result-layout">
           <div className="result-bar panel">

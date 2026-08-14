@@ -745,6 +745,59 @@ textarea {
   max-width: 1200px;
 }
 
+body.result-open .app-header {
+  display: none;
+}
+
+body.result-open .skip-link:focus {
+  top: 1rem;
+}
+
+.generate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  background: rgba(243, 241, 235, 0.96);
+}
+
+.generate-overlay-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 750;
+  color: var(--brand-dark);
+}
+
+.generate-overlay p {
+  margin: 0;
+  color: var(--ink-muted);
+  max-width: 28rem;
+}
+
+.result-layout .editor-toolbar > div:first-child {
+  display: none;
+}
+
+.editor-grammar-panel details {
+  margin: 0;
+}
+
+.editor-grammar-panel summary {
+  cursor: pointer;
+  font-weight: 650;
+  color: var(--brand-dark);
+}
+
+.editor-grammar-panel summary + .step-help {
+  margin-top: 0.75rem;
+}
+
 .result-layout {
   max-width: 1200px;
   margin: 0 auto;

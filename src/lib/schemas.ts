@@ -44,24 +44,71 @@ export const generateRequestSchema = z
 
 export type GenerateRequest = z.infer<typeof generateRequestSchema>;
 
+const LABELS = ["a", "b", "c", "d", "e"] as const;
+const INTERACTIONS = ["write", "checkbox", "order", "table", "match"] as const;
+
+const labelSchema = z.preprocess((value) => {
+  const letter = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-e]/g, "")
+    .slice(0, 1);
+  return letter || undefined;
+}, z.enum(LABELS));
+
+const interactionSchema = z.preprocess((value) => {
+  const raw = String(value ?? "write").toLowerCase();
+  if (raw === "matching" || raw === "koble" || raw === "koble-sammen") {
+    return "match";
+  }
+  if ((INTERACTIONS as readonly string[]).includes(raw)) return raw;
+  return "write";
+}, z.enum(INTERACTIONS));
+
+const spacingSchema = z.preprocess((value) => {
+  const raw = String(value ?? "normal").toLowerCase();
+  if (["compact", "normal", "loose", "xlarge"].includes(raw)) return raw;
+  return "normal";
+}, z.enum(["compact", "normal", "loose", "xlarge"]));
+
+function clampOptionalInt(min: number, max: number) {
+  return z.preprocess((value) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.round(Math.min(max, Math.max(min, n)));
+  }, z.number().int().min(min).max(max).optional());
+}
+
 const subTaskSchema = z.object({
-  label: z.enum(["a", "b", "c", "d", "e"]),
-  prompt: z.string(),
-  interaction: z.enum(["write", "checkbox", "order", "table", "match"]),
+  label: labelSchema,
+  prompt: z.preprocess((value) => String(value ?? ""), z.string()),
+  interaction: interactionSchema,
   options: z.array(z.string()).optional(),
-  lines: z.number().int().min(0).max(8).optional(),
+  lines: clampOptionalInt(0, 8),
   tableHeaders: z.array(z.string()).optional(),
-  tableRows: z.number().int().min(1).max(8).optional(),
-  answer: z.string().optional(),
-  points: z.number().int().min(0).max(1).optional(),
+  tableRows: clampOptionalInt(1, 8),
+  answer: z.preprocess(
+    (value) => (value == null ? undefined : String(value)),
+    z.string().optional(),
+  ),
+  points: clampOptionalInt(0, 1),
 });
+
+const subTasksSchema = z.preprocess((value) => {
+  if (!Array.isArray(value)) return value;
+  return value.slice(0, 5).map((item, index) => ({
+    ...(item && typeof item === "object" ? item : { prompt: String(item ?? "") }),
+    label: LABELS[index],
+  }));
+}, z.array(subTaskSchema).min(1).max(5));
 
 const readingTextSchema = z.object({
   title: z.string(),
   text: z.string(),
   instruction: z.string(),
-  spacingAfter: z.enum(["compact", "normal", "loose", "xlarge"]).optional(),
-  subTasks: z.array(subTaskSchema).min(1).max(5),
+  spacingAfter: spacingSchema.optional(),
+  subTasks: subTasksSchema,
 });
 
 const taskSchema = z.object({
@@ -69,24 +116,39 @@ const taskSchema = z.object({
   typeId: z.string(),
   instruction: z.string(),
   intro: z.string().optional(),
-  points: z.number().int().min(0).optional(),
-  spacingAfter: z.enum(["compact", "normal", "loose", "xlarge"]).optional(),
+  points: clampOptionalInt(0, 100),
+  spacingAfter: spacingSchema.optional(),
   /** Visningsrekkefølge for svarene i koble-sammen (indeks inn i subTasks). */
-  matchAnswerOrder: z.array(z.number().int().min(0).max(20)).optional(),
-  subTasks: z.array(subTaskSchema).min(1).max(5),
+  matchAnswerOrder: z.array(z.coerce.number().int().min(0).max(20)).optional(),
+  subTasks: subTasksSchema,
 });
 
 export const worksheetSchema = z.object({
   meta: z.object({
     title: z.string(),
-    level: z.enum(["A1", "A2", "B1", "B2"]),
+    level: z.preprocess(
+      (value) => String(value ?? "").toUpperCase(),
+      z.enum(["A1", "A2", "B1", "B2"]),
+    ),
     domain: z.string(),
-    kompetansemal: z.array(z.string()),
+    kompetansemal: z.array(
+      z.preprocess((value) => {
+        if (typeof value === "string") return value;
+        if (value && typeof value === "object" && "text" in value) {
+          return String((value as { text: unknown }).text);
+        }
+        return String(value ?? "");
+      }, z.string()),
+    ),
     grammarTopics: z.array(z.string()).optional(),
     grammarTopicIds: z.array(z.string()).optional(),
-    documentKind: z.enum(["ovingsark", "prove"]).optional(),
-    pointsPerAnswer: z.number().int().min(0).max(1).optional(),
-    maxScore: z.number().int().min(0).optional(),
+    documentKind: z.preprocess((value) => {
+      const raw = String(value ?? "").toLowerCase();
+      if (raw === "prove" || raw === "ovingsark") return raw;
+      return undefined;
+    }, z.enum(["ovingsark", "prove"]).optional()),
+    pointsPerAnswer: clampOptionalInt(0, 1),
+    maxScore: clampOptionalInt(0, 500),
   }),
   readingTexts: z.array(readingTextSchema),
   tasks: z.array(taskSchema),
@@ -97,8 +159,8 @@ export const worksheetSchema = z.object({
           title: z.string(),
           answers: z.array(
             z.object({
-              label: z.enum(["a", "b", "c", "d", "e"]),
-              answer: z.string(),
+              label: labelSchema,
+              answer: z.preprocess((value) => String(value ?? ""), z.string()),
             }),
           ),
         }),
@@ -108,8 +170,8 @@ export const worksheetSchema = z.object({
           title: z.string(),
           answers: z.array(
             z.object({
-              label: z.enum(["a", "b", "c", "d", "e"]),
-              answer: z.string(),
+              label: labelSchema,
+              answer: z.preprocess((value) => String(value ?? ""), z.string()),
             }),
           ),
         }),

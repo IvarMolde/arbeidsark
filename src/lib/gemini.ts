@@ -9,7 +9,7 @@ import { DOMAINS } from "@/data/domains";
 import { TASK_TYPES } from "@/data/taskTypes";
 import { KOMPETANSEMAL } from "@/data/kompetansemal";
 import { GRAMMAR_TOPICS } from "@/data/grammarTopics";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { normalizeInteractiveTasks } from "@/lib/taskNormalize";
 
 function extractJson(text: string): unknown {
@@ -292,20 +292,40 @@ export async function generateWorksheet(
     },
   });
 
-  const result = await model.generateContent(buildPrompt(input));
-  const text = result.response.text();
-  const parsed = extractJson(text);
-  const worksheet = normalizeWorksheet(worksheetSchema.parse(parsed), input);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await model.generateContent(buildPrompt(input));
+      const text = result.response.text();
+      const parsed = extractJson(text);
+      const worksheet = normalizeWorksheet(worksheetSchema.parse(parsed), input);
 
-  if (!input.includeAnswerKey) {
-    return {
-      meta: worksheet.meta,
-      readingTexts: worksheet.readingTexts,
-      tasks: worksheet.tasks,
-    };
+      if (!input.includeAnswerKey) {
+        return {
+          meta: worksheet.meta,
+          readingTexts: worksheet.readingTexts,
+          tasks: worksheet.tasks,
+        };
+      }
+
+      return worksheet;
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      const retryable =
+        error instanceof ZodError ||
+        (typeof error === "object" &&
+          error !== null &&
+          (error as { name?: string }).name === "ZodError") ||
+        message.includes("JSON") ||
+        message.includes("Fant ikke gyldig");
+      if (!retryable || attempt === 1) {
+        throw error;
+      }
+    }
   }
 
-  return worksheet;
+  throw lastError;
 }
 
 const replacedTaskSchema = z.object({

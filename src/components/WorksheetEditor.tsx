@@ -497,13 +497,17 @@ export default function WorksheetEditor({
           )}
 
           <div className="editor-grammar-panel">
-            <div className="editor-block-toolbar">
-              <strong>Grammatikkfokus</strong>
-              <span className="step-help" style={{ margin: 0 }}>
+            <details>
+              <summary>
+                Grammatikkfokus
+                {activeGrammarTopics.length > 0
+                  ? ` (${activeGrammarTopics.map((g) => g.title).join(", ")})`
+                  : ""}
+              </summary>
+              <p className="step-help">
                 Rediger grammatikktemaer for nivå {level}. Brukes ved «Bytt
                 oppgave».
-              </span>
-            </div>
+              </p>
             <div className="field">
               <label htmlFor="editor-grammar-select">
                 Legg til grammatikktema
@@ -552,6 +556,7 @@ export default function WorksheetEditor({
                 grammatikkoppgaver.
               </p>
             )}
+            </details>
           </div>
         </header>
 
