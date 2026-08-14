@@ -18,6 +18,10 @@ import {
   type Worksheet,
 } from "@/lib/schemas";
 import { spacingToTwip } from "@/lib/worksheetEdit";
+import {
+  displayedMatchAnswers,
+  isMatchTask,
+} from "@/lib/taskNormalize";
 
 const FONT = "Arial";
 
@@ -100,21 +104,14 @@ function checkboxParagraph(label: string, optionText: string): Paragraph {
   });
 }
 
-function subTaskBlocks(
-  subTask: SubTask,
-  showPoints: boolean,
-): (Paragraph | Table)[] {
+function subTaskBlocks(subTask: SubTask): (Paragraph | Table)[] {
   const labelPrefix = `${subTask.label}.`;
-  const pointsSuffix =
-    showPoints && (subTask.points ?? 1) > 0
-      ? ` (${subTask.points ?? 1} poeng)`
-      : "";
   const blocks: (Paragraph | Table)[] = [
     new Paragraph({
       spacing: { before: 100, after: 60 },
       children: [
         new TextRun({
-          text: `${labelPrefix} ${subTask.prompt}${pointsSuffix}`,
+          text: `${labelPrefix} ${subTask.prompt}`,
           font: FONT,
           size: 24,
           bold: true,
@@ -192,6 +189,37 @@ function subTaskBlocks(
   return blocks;
 }
 
+function matchTaskBlocks(
+  task: Worksheet["tasks"][number],
+): (Paragraph | Table)[] {
+  const blocks: (Paragraph | Table)[] = [
+    body("Utsagn:", true),
+  ];
+
+  for (const st of task.subTasks) {
+    blocks.push(
+      new Paragraph({
+        spacing: { before: 80, after: 40 },
+        children: [
+          new TextRun({
+            text: `${st.label}. ${st.prompt}`,
+            font: FONT,
+            size: 24,
+          }),
+        ],
+      }),
+    );
+    blocks.push(...writingLines(1));
+  }
+
+  blocks.push(body(" "));
+  blocks.push(body("Svar:", true));
+  for (const item of displayedMatchAnswers(task)) {
+    blocks.push(body(`${item.letter}. ${item.text}`));
+  }
+  return blocks;
+}
+
 function pageBreak(): Paragraph {
   return new Paragraph({
     children: [],
@@ -228,10 +256,11 @@ export async function buildWorksheetDocx(worksheet: Worksheet): Promise<Blob> {
   if (isProve) {
     children.push(
       body(
-        `Maks poeng: ${maxScore} (hver riktig besvarelse gir 1 poeng)`,
+        "Alle riktige svar gir 1 poeng.",
         true,
       ),
     );
+    children.push(body(`Maks poeng: ${maxScore}`));
     children.push(body(`Poeng sum: ________ / ${maxScore}`));
   }
   children.push(body(" "));
@@ -249,7 +278,7 @@ export async function buildWorksheetDocx(worksheet: Worksheet): Promise<Blob> {
     children.push(body(" "));
     children.push(body("Oppgaver:", true));
     for (const st of rt.subTasks) {
-      children.push(...subTaskBlocks(st, isProve));
+      children.push(...subTaskBlocks(st));
     }
     children.push(
       new Paragraph({
@@ -260,19 +289,19 @@ export async function buildWorksheetDocx(worksheet: Worksheet): Promise<Blob> {
   });
 
   worksheet.tasks.forEach((task, index) => {
-    const taskPoints =
-      isProve && typeof task.points === "number" ? ` (${task.points} poeng)` : "";
-    children.push(
-      subHeading(`Oppgave ${index + 1}: ${task.title}${taskPoints}`),
-    );
+    children.push(subHeading(`Oppgave ${index + 1}: ${task.title}`));
     children.push(boldInstruction(task.instruction));
     if (task.intro) {
       for (const paragraph of task.intro.split(/\n+/)) {
         if (paragraph.trim()) children.push(body(paragraph.trim()));
       }
     }
-    for (const st of task.subTasks) {
-      children.push(...subTaskBlocks(st, isProve));
+    if (isMatchTask(task)) {
+      children.push(...matchTaskBlocks(task));
+    } else {
+      for (const st of task.subTasks) {
+        children.push(...subTaskBlocks(st));
+      }
     }
     children.push(
       new Paragraph({
@@ -295,18 +324,14 @@ export async function buildWorksheetDocx(worksheet: Worksheet): Promise<Blob> {
     worksheet.answerKey.readingTexts.forEach((rt) => {
       children.push(subHeading(`Lesetekst: ${rt.title}`));
       for (const a of rt.answers) {
-        children.push(
-          body(`${a.label}. ${a.answer}${isProve ? " (1 poeng)" : ""}`),
-        );
+        children.push(body(`${a.label}. ${a.answer}`));
       }
     });
 
     worksheet.answerKey.tasks.forEach((task) => {
       children.push(subHeading(`Oppgave: ${task.title}`));
       for (const a of task.answers) {
-        children.push(
-          body(`${a.label}. ${a.answer}${isProve ? " (1 poeng)" : ""}`),
-        );
+        children.push(body(`${a.label}. ${a.answer}`));
       }
     });
   }

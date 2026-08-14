@@ -47,7 +47,7 @@ export type GenerateRequest = z.infer<typeof generateRequestSchema>;
 const subTaskSchema = z.object({
   label: z.enum(["a", "b", "c", "d", "e"]),
   prompt: z.string(),
-  interaction: z.enum(["write", "checkbox", "order", "table"]),
+  interaction: z.enum(["write", "checkbox", "order", "table", "match"]),
   options: z.array(z.string()).optional(),
   lines: z.number().int().min(0).max(8).optional(),
   tableHeaders: z.array(z.string()).optional(),
@@ -71,6 +71,8 @@ const taskSchema = z.object({
   intro: z.string().optional(),
   points: z.number().int().min(0).optional(),
   spacingAfter: z.enum(["compact", "normal", "loose", "xlarge"]).optional(),
+  /** Visningsrekkefølge for svarene i koble-sammen (indeks inn i subTasks). */
+  matchAnswerOrder: z.array(z.number().int().min(0).max(20)).optional(),
   subTasks: z.array(subTaskSchema).min(1).max(5),
 });
 

@@ -67,9 +67,11 @@ Din oppgave er å omskrive oppgavetekster slik at de blir mer naturlige, varme o
 BEHOLD:
 - Samme JSON-struktur og alle feltnavn
 - Samme antall readingTexts, tasks og subTasks
-- Samme label (a–e), interaction, lines, options, tableHeaders, tableRows, points, spacingAfter, typeId, answer/fasit
+- Samme label (a–e), interaction, lines, options, tableHeaders, tableRows, points, spacingAfter, typeId, answer/fasit, matchAnswerOrder
 - Samme nivå (${worksheet.meta.level}) og tema (${worksheet.meta.domain})
 - meta.documentKind, maxScore, pointsPerAnswer
+- For koble-sammen: behold utsagn uten fasit i parentes. Ikke flytt svar inn i prompt-teksten.
+- For rekkefølge: ikke sorter setningene i kronologisk rekkefølge.
 
 FORBEDRE:
 - Tittel, instruksjoner, intro, lesetekster og prompt-tekster
@@ -110,6 +112,8 @@ ${JSON.stringify(worksheet)}`;
         ...task,
         spacingAfter: task.spacingAfter ?? worksheet.tasks[i]?.spacingAfter,
         typeId: task.typeId || worksheet.tasks[i]?.typeId || "skriveoppgave",
+        matchAnswerOrder:
+          task.matchAnswerOrder ?? worksheet.tasks[i]?.matchAnswerOrder,
         subTasks: task.subTasks.map((st, j) => ({
           ...st,
           interaction:

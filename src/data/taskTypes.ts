@@ -17,7 +17,7 @@ export type TaskType = {
   title: string;
   description: string;
   /** Om typen typisk bruker avkrysning i stedet for skrivestreker */
-  interaction: "write" | "checkbox" | "order" | "table" | "mixed";
+  interaction: "write" | "checkbox" | "order" | "table" | "match" | "mixed";
 };
 
 export const TASK_TYPES: TaskType[] = [
@@ -36,7 +36,8 @@ export const TASK_TYPES: TaskType[] = [
   {
     id: "rekkefolge",
     title: "Hendelser i riktig rekkefølge",
-    description: "Nummerer eller sorter hendelser i riktig rekkefølge.",
+    description:
+      "Setninger i blandet rekkefølge. Eleven skriver tallet for når det skjer.",
     interaction: "order",
   },
   {
@@ -90,7 +91,8 @@ export const TASK_TYPES: TaskType[] = [
   {
     id: "koble-sammen",
     title: "Koble sammen",
-    description: "Koble setningsdeler, spørsmål–svar eller ord–betydning.",
-    interaction: "table",
+    description:
+      "Utsagn i én liste, svar i en annen liste med blandet rekkefølge.",
+    interaction: "match",
   },
 ];

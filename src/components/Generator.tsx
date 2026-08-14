@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LEVELS, type CEFRLevel } from "@/data/levels";
 import { DOMAINS } from "@/data/domains";
 import { TASK_TYPES, type TaskTypeId } from "@/data/taskTypes";
@@ -8,6 +8,7 @@ import { getKompetansemalForLevel } from "@/data/kompetansemal";
 import { getGrammarTopicsForLevel } from "@/data/grammarTopics";
 import type { Worksheet } from "@/lib/schemas";
 import { buildWorksheetDocx, downloadBlob } from "@/lib/docx";
+import { normalizeInteractiveTasks } from "@/lib/taskNormalize";
 import WorksheetEditor from "@/components/WorksheetEditor";
 
 type DocumentKind = "ovingsark" | "prove";
@@ -84,6 +85,7 @@ export default function Generator() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [worksheet, setWorksheet] = useState<Worksheet | null>(null);
+  const [showResult, setShowResult] = useState(false);
 
   const isProve = documentKind === "prove";
   const goals = useMemo(() => getKompetansemalForLevel(level), [level]);
@@ -116,6 +118,7 @@ export default function Generator() {
     setKompetansemalIds([]);
     setGrammarTopicIds([]);
     setWorksheet(null);
+    setShowResult(false);
   };
 
   const toggleTaskType = (id: TaskTypeId) => {
@@ -183,7 +186,9 @@ export default function Generator() {
       if (!res.ok || !data.worksheet) {
         throw new Error(data.error || "Generering feilet.");
       }
-      setWorksheet(data.worksheet);
+      setWorksheet(normalizeInteractiveTasks(data.worksheet));
+      setShowResult(true);
+      window.scrollTo({ top: 0, behavior: "auto" });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Noe gikk galt. Prøv igjen.",
@@ -206,8 +211,65 @@ export default function Generator() {
     downloadBlob(blob, `${prefix}-${safeName || "norsk"}.docx`);
   };
 
+  useEffect(() => {
+    if (!showResult) return;
+    document.getElementById("result-title")?.focus();
+  }, [showResult]);
+
   return (
     <>
+      {showResult && worksheet ? (
+        <div className="result-layout">
+          <div className="result-bar panel">
+            <div>
+              <h2 className="step-title" id="result-title" tabIndex={-1}>
+                {isProve ? "Rediger prøven" : "Rediger arbeidsarket"}
+              </h2>
+              <p className="step-help">
+                Arket vises øverst. Gjør endringer her, og last ned Word når det
+                ser riktig ut.
+              </p>
+            </div>
+            <div className="result-bar-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowResult(false);
+                  window.scrollTo({ top: 0, behavior: "auto" });
+                }}
+              >
+                Tilbake til valgene
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleDownload}
+              >
+                Last ned Word (.docx)
+              </button>
+            </div>
+          </div>
+          {error && (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="panel editor-panel">
+            <WorksheetEditor
+              worksheet={worksheet}
+              onChange={setWorksheet}
+              level={level}
+              domainId={domainId}
+              grammarTopicIds={grammarTopicIds}
+              onNaturalizeError={(message) => {
+                if (message) setError(message);
+                else setError(null);
+              }}
+            />
+          </div>
+        </div>
+      ) : (
       <div className="layout">
         <div>
           <section className="panel" aria-labelledby="step-kind">
@@ -230,6 +292,7 @@ export default function Generator() {
                   onChange={() => {
                     setDocumentKind("ovingsark");
                     setWorksheet(null);
+                    setShowResult(false);
                   }}
                 />
                 <span>
@@ -245,6 +308,7 @@ export default function Generator() {
                   onChange={() => {
                     setDocumentKind("prove");
                     setWorksheet(null);
+                    setShowResult(false);
                   }}
                 />
                 <span>
@@ -451,7 +515,7 @@ export default function Generator() {
               <>
                 <p className="step-help">
                   Velg antall oppgaver på prøven. Hver oppgave har deloppgaver
-                  a.–e., og hver riktig besvarelse gir 1 poeng (5 poeng per
+                  a.–e. Alle riktige svar gir 1 poeng (totalt 5 poeng per
                   oppgave).
                 </p>
                 <div className="scope-row">
@@ -574,22 +638,6 @@ export default function Generator() {
               Ta med fasit bakerst i dokumentet
             </label>
           </section>
-
-          {worksheet && (
-            <div className="panel editor-panel">
-              <WorksheetEditor
-                worksheet={worksheet}
-                onChange={setWorksheet}
-                level={level}
-                domainId={domainId}
-                grammarTopicIds={grammarTopicIds}
-                onNaturalizeError={(message) => {
-                  if (message) setError(message);
-                  else setError(null);
-                }}
-              />
-            </div>
-          )}
         </div>
 
         <aside className="panel summary" aria-labelledby="summary-title">
@@ -662,7 +710,7 @@ export default function Generator() {
             {isProve && (
               <>
                 <dt>Poeng</dt>
-                <dd>1 poeng per riktig besvarelse · maks {proveMaxScore}</dd>
+                <dd>Alle riktige svar gir 1 poeng · maks {proveMaxScore}</dd>
               </>
             )}
             <dt>Fasit</dt>
@@ -684,14 +732,19 @@ export default function Generator() {
                   ? "Generer prøve"
                   : "Generer arbeidsark"}
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              disabled={!worksheet || loading}
-              onClick={handleDownload}
-            >
-              Last ned Word (.docx)
-            </button>
+            {worksheet && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={loading}
+                onClick={() => {
+                  setShowResult(true);
+                  window.scrollTo({ top: 0, behavior: "auto" });
+                }}
+              >
+                Vis siste arbeidsark
+              </button>
+            )}
           </div>
 
           {loading && (
@@ -713,6 +766,7 @@ export default function Generator() {
           )}
         </aside>
       </div>
+      )}
     </>
   );
 }

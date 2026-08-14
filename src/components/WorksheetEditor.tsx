@@ -17,6 +17,13 @@ import {
   recalculateProveScores,
   spacingToCss,
 } from "@/lib/worksheetEdit";
+import {
+  displayedMatchAnswers,
+  isMatchTask,
+  matchLetterForIndex,
+  normalizeInteractiveTasks,
+  shuffledPermutation,
+} from "@/lib/taskNormalize";
 
 type Props = {
   worksheet: Worksheet;
@@ -36,11 +43,9 @@ function updateWorksheet(
 
 function SubTaskEditor({
   subTask,
-  showPoints,
   onChange,
 }: {
   subTask: SubTask;
-  showPoints: boolean;
   onChange: (next: SubTask) => void;
 }) {
   const lines = subTask.lines ?? 0;
@@ -57,7 +62,6 @@ function SubTaskEditor({
           value={subTask.prompt}
           onChange={(e) => onChange({ ...subTask, prompt: e.target.value })}
         />
-        {showPoints && <span className="editor-points">1 p</span>}
       </div>
 
       <div className="editor-subtask-tools" role="group" aria-label="Verktøy for deloppgave">
@@ -92,6 +96,7 @@ function SubTaskEditor({
             <option value="checkbox">Avkrysning</option>
             <option value="order">Rekkefølge</option>
             <option value="table">Tabell</option>
+            <option value="match">Koble sammen</option>
           </select>
         </label>
 
@@ -213,6 +218,85 @@ function SubTaskEditor({
   );
 }
 
+function MatchTaskEditor({
+  task,
+  onChange,
+}: {
+  task: Worksheet["tasks"][number];
+  onChange: (next: Worksheet["tasks"][number]) => void;
+}) {
+  const answers = displayedMatchAnswers(task);
+  const fasit = task.subTasks
+    .map(
+      (st, i) =>
+        `${st.label} → ${matchLetterForIndex(task.matchAnswerOrder, i, task.subTasks.length)}`,
+    )
+    .join(", ");
+
+  return (
+    <div className="match-editor">
+      <p className="step-help">
+        Elevene ser først utsagnene, deretter svarene i blandet rekkefølge. De
+        skriver bokstaven (A, B, C …) på linjen. Fasit for læreren: {fasit}.
+      </p>
+      <div className="match-section">
+        <h3 className="match-heading">Utsagn</h3>
+        {task.subTasks.map((st, i) => (
+          <div className="editor-option-row match-statement" key={st.label}>
+            <span className="editor-label">{st.label}.</span>
+            <input
+              className="editor-input"
+              aria-label={`Utsagn ${st.label}`}
+              value={st.prompt}
+              onChange={(e) => {
+                const subTasks = [...task.subTasks];
+                subTasks[i] = { ...subTasks[i], prompt: e.target.value };
+                onChange({ ...task, subTasks });
+              }}
+            />
+            <span className="match-blank" aria-hidden="true" />
+          </div>
+        ))}
+      </div>
+      <div className="match-section">
+        <div className="editor-block-toolbar">
+          <h3 className="match-heading">Svar (blandet rekkefølge)</h3>
+          <button
+            type="button"
+            className="btn-chip"
+            onClick={() =>
+              onChange({
+                ...task,
+                matchAnswerOrder: shuffledPermutation(task.subTasks.length),
+              })
+            }
+          >
+            Bland svarene på nytt
+          </button>
+        </div>
+        {answers.map((item) => (
+          <div className="editor-option-row" key={`${item.letter}-${item.subTaskIndex}`}>
+            <span className="editor-label">{item.letter}.</span>
+            <input
+              className="editor-input"
+              aria-label={`Svar ${item.letter}`}
+              value={item.text}
+              onChange={(e) => {
+                const subTasks = [...task.subTasks];
+                subTasks[item.subTaskIndex] = {
+                  ...subTasks[item.subTaskIndex],
+                  answer: e.target.value,
+                };
+                onChange({ ...task, subTasks });
+              }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function WorksheetEditor({
   worksheet,
   onChange,
@@ -261,7 +345,7 @@ export default function WorksheetEditor({
       if (!res.ok || !data.worksheet) {
         throw new Error(data.error || "Kunne ikke bytte oppgave.");
       }
-      onChange(recalculateProveScores(data.worksheet));
+      onChange(normalizeInteractiveTasks(recalculateProveScores(data.worksheet)));
     } catch (err) {
       onNaturalizeError?.(
         err instanceof Error ? err.message : "Kunne ikke bytte oppgave.",
@@ -405,8 +489,12 @@ export default function WorksheetEditor({
           </label>
           <p>
             {worksheet.meta.level} · {worksheet.meta.domain}
-            {isProve ? ` · Maks ${maxScore} poeng` : ""}
           </p>
+          {isProve && (
+            <p className="editor-score-note">
+              Alle riktige svar gir 1 poeng. Maks poeng: {maxScore}.
+            </p>
+          )}
 
           <div className="editor-grammar-panel">
             <div className="editor-block-toolbar">
@@ -606,7 +694,6 @@ export default function WorksheetEditor({
               <SubTaskEditor
                 key={st.label + stIndex}
                 subTask={st}
-                showPoints={isProve}
                 onChange={(next) =>
                   set((w) => {
                     const readingTexts = [...w.readingTexts];
@@ -630,7 +717,6 @@ export default function WorksheetEditor({
             <div className="editor-block-toolbar">
               <strong>
                 Oppgave {index + 1}
-                {isProve ? ` (${task.points ?? task.subTasks.length} poeng)` : ""}
               </strong>
               <div className="editor-block-actions">
                 <label>
@@ -753,22 +839,34 @@ export default function WorksheetEditor({
               />
             </label>
 
-            {task.subTasks.map((st, stIndex) => (
-              <SubTaskEditor
-                key={st.label + stIndex}
-                subTask={st}
-                showPoints={isProve}
+            {isMatchTask(task) ? (
+              <MatchTaskEditor
+                task={task}
                 onChange={(next) =>
                   set((w) => {
                     const tasks = [...w.tasks];
-                    const subTasks = [...tasks[index].subTasks];
-                    subTasks[stIndex] = next;
-                    tasks[index] = { ...tasks[index], subTasks };
+                    tasks[index] = next;
                     return { ...w, tasks };
                   })
                 }
               />
-            ))}
+            ) : (
+              task.subTasks.map((st, stIndex) => (
+                <SubTaskEditor
+                  key={st.label + stIndex}
+                  subTask={st}
+                  onChange={(next) =>
+                    set((w) => {
+                      const tasks = [...w.tasks];
+                      const subTasks = [...tasks[index].subTasks];
+                      subTasks[stIndex] = next;
+                      tasks[index] = { ...tasks[index], subTasks };
+                      return { ...w, tasks };
+                    })
+                  }
+                />
+              ))
+            )}
           </article>
         ))}
 

@@ -10,6 +10,7 @@ import { TASK_TYPES } from "@/data/taskTypes";
 import { KOMPETANSEMAL } from "@/data/kompetansemal";
 import { GRAMMAR_TOPICS } from "@/data/grammarTopics";
 import { z } from "zod";
+import { normalizeInteractiveTasks } from "@/lib/taskNormalize";
 
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
@@ -77,16 +78,17 @@ KRAV:
 - Oppgaveinstruksjoner skal være korte og tydelige for elever på nivå ${input.level}.
 - For write-oppgaver: sett "interaction":"write" og "lines" (1–4).
 - For rett/feil eller kryss påstand: sett "interaction":"checkbox" og "options" med påstander.
-- For rekkefølge: sett "interaction":"order" og "options" med usorterte hendelser.
+- For rekkefølge: se egne regler under. Ikke list hendelsene i den rekkefølgen de skjedde.
+- For koble-sammen: se egne regler under. ALDRI skriv fasit i parentes etter utsagnet.
 - For ordforråd/tabell: sett "interaction":"table", "tableHeaders" og "tableRows".
 - Ikke bruk markdown. Svar med KUN gyldig JSON (ingen tekst utenfor JSON).
 ${
   isProve
     ? `- Dette er en PRØVE (ikke øving). Formuleringer skal være egnet til vurdering.
-- Hver deloppgave (a–e) gir nøyaktig 1 poeng. Sett "points": 1 på hver subTask.
 - Sett meta.pointsPerAnswer = 1 og meta.maxScore = ${maxScore}.
 - Sett meta.documentKind = "prove".
-- Vis poeng i instruksjonen der det passer, f.eks. "Hver riktig besvarelse gir 1 poeng."`
+- IKKE skriv poeng på hver deloppgave eller i hver oppgaveinstruks.
+- Poengreglene står bare én gang øverst i dokumentet (vi legger dem til selv).`
     : `- Dette er et ØVINGSark. Sett meta.documentKind = "ovingsark".`
 }
 
@@ -149,14 +151,13 @@ JSON-FORMAT (følg nøyaktig):
     {
       "title": "string",
       "text": "lesetekst tilpasset nivået",
-      "instruction": "Les teksten. Svar på spørsmålene.${isProve ? " Hver riktig besvarelse gir 1 poeng." : ""}",
+      "instruction": "Les teksten. Svar på spørsmålene.",
       "subTasks": [
         {
           "label": "a",
           "prompt": "spørsmål eller oppgave",
           "interaction": "write",
           "lines": 2,
-          "points": ${isProve ? 1 : 0},
           "answer": "fasitsvar"
         }
       ]
@@ -166,16 +167,14 @@ JSON-FORMAT (følg nøyaktig):
     {
       "title": "Oppgavetittel",
       "typeId": "${nonReadingTypes[0]?.id ?? "manglende-ord"}",
-      "instruction": "tydelig instruks${isProve ? " (hver riktig besvarelse gir 1 poeng)" : ""}",
+      "instruction": "tydelig instruks",
       "intro": "valgfri kort kontekst eller ordliste",
-      "points": ${isProve ? 5 : 0},
       "subTasks": [
         {
           "label": "a",
           "prompt": "...",
           "interaction": "write",
           "lines": 1,
-          "points": ${isProve ? 1 : 0},
           "answer": "..."
         }
       ]
@@ -197,7 +196,25 @@ REGLER FOR ANTALL:
   }
 - Varier typeId mellom oppgavene.
 - Hvis fasit ikke skal med: utelat feltet answerKey helt, og utelat "answer" på subTasks.
-- Hvis fasit skal med: fyll answerKey komplett, og legg "answer" på hver subTask.`;
+- Hvis fasit skal med: fyll answerKey komplett, og legg "answer" på hver subTask.
+
+SPESIELLE OPPGAVETYPER (viktig):
+- rekkefolge: Hver deloppgave a–e er ÉN setning/hendelse. Setningene MÅ stå i BLANDET rekkefølge, ALDRI kronologisk. interaction="write", lines=1. answer = tallet 1–5 for når det skjer (1 = først). Ikke skriv tallet eller fasit i prompt-teksten.
+- koble-sammen: Hver deloppgave er ett utsagn eller spørsmål. prompt = KUN utsagnet, uten fasit og uten parentes. answer = svaret som hører til (egen tekst). interaction="match". FORBUDT: "Hvor bor du? (Jeg bor i Molde)". Vi viser svarene i en egen, blandet liste.`;
+}
+
+/** Fjerner poengtekst fra oppgaveinstrukser – poeng står bare øverst. */
+function stripInlinePointsWording(text: string): string {
+  return text
+    .replace(
+      /\s*\(?\s*hver riktig(?:e)? (?:besvarelse|svar) gir 1 poeng\.?\s*\)?/gi,
+      "",
+    )
+    .replace(/\s*\(?\s*alle riktige svar gir 1 poeng\.?\s*\)?/gi, "")
+    .replace(/\s*\(\s*\d+\s*poeng\s*\)/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.!?])/g, "$1")
+    .trim();
 }
 
 function normalizeWorksheet(
@@ -226,26 +243,30 @@ function normalizeWorksheet(
     },
   };
 
+  const withTasks = normalizeInteractiveTasks(withMeta);
+
   if (kind !== "prove") {
-    return withMeta;
+    return withTasks;
   }
 
-  const maxScore = calculateMaxScore(withMeta);
+  const maxScore = calculateMaxScore(withTasks);
   return {
-    ...withMeta,
+    ...withTasks,
     meta: {
-      ...withMeta.meta,
+      ...withTasks.meta,
       documentKind: "prove",
       pointsPerAnswer: 1,
       maxScore,
     },
-    readingTexts: withMeta.readingTexts.map((rt) => ({
+    readingTexts: withTasks.readingTexts.map((rt) => ({
       ...rt,
+      instruction: stripInlinePointsWording(rt.instruction),
       subTasks: rt.subTasks.map((st) => ({ ...st, points: 1 })),
     })),
-    tasks: withMeta.tasks.map((task) => ({
+    tasks: withTasks.tasks.map((task) => ({
       ...task,
-      points: 5,
+      instruction: stripInlinePointsWording(task.instruction),
+      points: task.subTasks.length,
       subTasks: task.subTasks.map((st) => ({ ...st, points: 1 })),
     })),
   };
@@ -342,7 +363,9 @@ ${grammarTopics.length ? `- Grammatikkfokus: ${grammarTopics.map((g) => `${g.tit
 - Lag UNIKT innhold – ikke lik den gamle oppgaven.
 - Hver oppgave/lesetekst skal ha nøyaktig 5 deloppgaver a–e.
 - typeId for vanlig oppgave må være en av: ${nonReadingTypes.map((t) => t.id).join(", ")}
-${isProve ? "- Sett points: 1 på hver subTask." : ""}
+${isProve ? "- Ikke skriv poeng på hver deloppgave. Poeng står bare øverst i dokumentet." : ""}
+- Hvis typeId er rekkefolge: setningene a–e MÅ stå i blandet rekkefølge. answer = tallet 1–5 (1 = først). Ikke list hendelsene kronologisk.
+- Hvis typeId er koble-sammen: prompt er KUN utsagnet. answer er svaret. interaction="match". ALDRI fasit i parentes.
 - Svar med KUN gyldig JSON.
 
 GAMMEL OPPGAVE (skal IKKE kopieres):
@@ -455,6 +478,6 @@ ${
     };
   }
 
-  return next;
+  return normalizeInteractiveTasks(next);
 }
 

@@ -1,4 +1,5 @@
 import type { SubTask, Worksheet } from "@/lib/schemas";
+import { refreshAnswerKey } from "@/lib/taskNormalize";
 
 export type SpacingSize = "compact" | "normal" | "loose" | "xlarge";
 
@@ -62,7 +63,7 @@ export function createEmptyReadingText(
     title: "Ny lesetekst",
     text: "Skriv inn leseteksten her.",
     instruction: isProve
-      ? "Les teksten. Svar på spørsmålene. Hver riktig besvarelse gir 1 poeng."
+      ? "Les teksten. Svar på spørsmålene."
       : "Les teksten. Svar på spørsmålene.",
     spacingAfter: "normal",
     subTasks: createEmptySubTasks(isProve),
@@ -78,12 +79,14 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
 }
 
 export function recalculateProveScores(worksheet: Worksheet): Worksheet {
-  if (worksheet.meta.documentKind !== "prove") return worksheet;
+  if (worksheet.meta.documentKind !== "prove") {
+    return refreshAnswerKey(worksheet);
+  }
   const maxScore =
     worksheet.readingTexts.reduce((s, rt) => s + rt.subTasks.length, 0) +
     worksheet.tasks.reduce((s, t) => s + t.subTasks.length, 0);
 
-  return {
+  return refreshAnswerKey({
     ...worksheet,
     meta: {
       ...worksheet.meta,
@@ -99,5 +102,5 @@ export function recalculateProveScores(worksheet: Worksheet): Worksheet {
       points: task.subTasks.length,
       subTasks: task.subTasks.map((st) => ({ ...st, points: 1 })),
     })),
-  };
+  });
 }
