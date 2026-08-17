@@ -21,7 +21,11 @@ function extractJson(text: string): unknown {
   if (start === -1 || end === -1 || end <= start) {
     throw new Error("Fant ikke gyldig JSON i AI-svaret.");
   }
-  return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  try {
+    return JSON.parse(candidate.slice(start, end + 1)) as unknown;
+  } catch {
+    throw new Error("Fant ikke gyldig JSON i AI-svaret.");
+  }
 }
 
 function readingCount(input: GenerateRequest): number {
@@ -318,7 +322,9 @@ export async function generateWorksheet(
           error !== null &&
           (error as { name?: string }).name === "ZodError") ||
         message.includes("JSON") ||
-        message.includes("Fant ikke gyldig");
+        message.includes("Fant ikke gyldig") ||
+        message.includes("503") ||
+        message.toLowerCase().includes("overloaded");
       if (!retryable || attempt === 1) {
         throw error;
       }

@@ -179,10 +179,17 @@ export default function Generator() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as {
-        worksheet?: Worksheet;
-        error?: string;
-      };
+      let data: { worksheet?: Worksheet; error?: string };
+      try {
+        data = (await res.json()) as {
+          worksheet?: Worksheet;
+          error?: string;
+        };
+      } catch {
+        throw new Error(
+          "Serveren svarte ikke i tide. Prøv færre oppgaver, eller prøv igjen.",
+        );
+      }
       if (!res.ok || !data.worksheet) {
         throw new Error(data.error || "Generering feilet.");
       }

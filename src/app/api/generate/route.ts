@@ -21,6 +21,106 @@ function isZodError(error: unknown): error is ZodError {
   );
 }
 
+function userFacingGenerateError(message: string): {
+  error: string;
+  status: number;
+} {
+  const lower = message.toLowerCase();
+
+  if (
+    message.includes("Fant ikke gyldig JSON") ||
+    lower.includes("unexpected token") ||
+    lower.includes("in json")
+  ) {
+    return {
+      error:
+        "KI-svaret kunne ikke leses. Prøv å generere på nytt, gjerne med færre oppgaver.",
+      status: 502,
+    };
+  }
+
+  if (message.includes("API-nøkkel") || /api[_ -]?key/i.test(message)) {
+    return {
+      error:
+        "Gemini API-nøkkel mangler eller er ugyldig. Sjekk GEMINI_API_KEY i Vercel (Environment Variables) eller i .env.local.",
+      status: 500,
+    };
+  }
+
+  if (
+    message.includes("429") ||
+    lower.includes("quota") ||
+    lower.includes("rate-limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("resource has been exhausted")
+  ) {
+    return {
+      error:
+        "Gemini-kvoten er brukt opp. Vent litt, eller sjekk plan/faktura i Google AI Studio.",
+      status: 429,
+    };
+  }
+
+  if (message.includes("404") || lower.includes("no longer available")) {
+    return {
+      error:
+        "Valgt Gemini-modell er ikke tilgjengelig. Sett GEMINI_MODEL=gemini-flash-latest i Vercel og prøv igjen.",
+      status: 502,
+    };
+  }
+
+  if (lower.includes("blocked") || lower.includes("safety")) {
+    return {
+      error:
+        "Forespørselen ble stoppet av sikkerhetsfilteret. Prøv et annet tema eller generer på nytt.",
+      status: 502,
+    };
+  }
+
+  if (message.includes("503") || lower.includes("overloaded")) {
+    return {
+      error: "Gemini er opptatt akkurat nå. Vent et halvt minutt og prøv igjen.",
+      status: 503,
+    };
+  }
+
+  if (
+    lower.includes("timeout") ||
+    lower.includes("deadline") ||
+    lower.includes("etimedout") ||
+    lower.includes("aborted")
+  ) {
+    return {
+      error:
+        "Genereringen tok for lang tid. Prøv færre oppgaver, eller prøv igjen.",
+      status: 504,
+    };
+  }
+
+  if (
+    lower.includes("fetch failed") ||
+    lower.includes("econnreset") ||
+    lower.includes("network")
+  ) {
+    return {
+      error: "Fikk ikke kontakt med Gemini. Prøv igjen om litt.",
+      status: 502,
+    };
+  }
+
+  if (lower.includes("text not available") || lower.includes("empty candidate")) {
+    return {
+      error: "Gemini ga tomt svar. Prøv å generere på nytt.",
+      status: 502,
+    };
+  }
+
+  return {
+    error: "Kunne ikke generere arbeidsark akkurat nå. Prøv igjen om litt.",
+    status: 500,
+  };
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -105,73 +205,17 @@ export async function POST(request: Request) {
     const message = errorMessage(error);
     console.error("Generate failed:", message);
 
-    if (isZodError(error) || message.includes("Fant ikke gyldig JSON")) {
+    if (isZodError(error)) {
       return NextResponse.json(
         {
           error:
-            "KI-svaret kunne ikke leses. Prøv å generere på nytt.",
+            "KI-svaret kunne ikke leses. Prøv å generere på nytt, gjerne med færre oppgaver.",
         },
         { status: 502 },
       );
     }
 
-    if (message.includes("API-nøkkel") || /api[_ -]?key/i.test(message)) {
-      return NextResponse.json(
-        {
-          error:
-            "Gemini API-nøkkel mangler eller er ugyldig. Sjekk GEMINI_API_KEY i .env.local (lokalt) eller i Vercel (produksjon).",
-        },
-        { status: 500 },
-      );
-    }
-
-    if (
-      message.includes("429") ||
-      message.toLowerCase().includes("quota") ||
-      message.toLowerCase().includes("rate-limit") ||
-      message.toLowerCase().includes("too many requests")
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Gemini-kvoten er brukt opp for denne modellen/nøkkelen. Vent litt, bytt modell i .env.local (GEMINI_MODEL), eller sjekk plan/faktura i Google AI Studio.",
-        },
-        { status: 429 },
-      );
-    }
-
-    if (
-      message.includes("404") ||
-      message.toLowerCase().includes("no longer available")
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Valgt Gemini-modell er ikke tilgjengelig for denne nøkkelen. Sett GEMINI_MODEL=gemini-flash-latest i .env.local og prøv igjen.",
-        },
-        { status: 502 },
-      );
-    }
-
-    if (
-      message.toLowerCase().includes("blocked") ||
-      message.toLowerCase().includes("safety")
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "Forespørselen ble stoppet av sikkerhetsfilteret. Prøv et annet tema eller generer på nytt.",
-        },
-        { status: 502 },
-      );
-    }
-
-    return NextResponse.json(
-      {
-        error:
-          "Kunne ikke generere arbeidsark akkurat nå. Prøv igjen om litt.",
-      },
-      { status: 500 },
-    );
+    const mapped = userFacingGenerateError(message);
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status });
   }
 }
