@@ -200,7 +200,7 @@ function normalizeMatchTask(
   const subTasks = task.subTasks.map((st) => {
     const stripped = stripAnswerParenthetical(st.prompt);
     let prompt = stripped.prompt;
-    let answer = (st.answer?.trim() || stripped.extracted || "").trim();
+    const answer = (st.answer?.trim() || stripped.extracted || "").trim();
 
     if (answer && prompt.includes(`(${answer})`)) {
       prompt = prompt.replace(`(${answer})`, "").replace(/\s{2,}/g, " ").trim();
