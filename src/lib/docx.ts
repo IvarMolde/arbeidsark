@@ -21,6 +21,8 @@ import { spacingToTwip } from "@/lib/worksheetEdit";
 import {
   displayedMatchAnswers,
   isMatchTask,
+  isOrderNumbering,
+  ORDER_NUMBERS,
 } from "@/lib/taskNormalize";
 
 const FONT = "Arial";
@@ -94,6 +96,20 @@ function writingLines(count: number): Paragraph[] {
   );
 }
 
+function orderNumberParagraph(): Paragraph {
+  const children: (CheckBox | TextRun)[] = [];
+  for (const n of ORDER_NUMBERS) {
+    children.push(new CheckBox({ checked: false }));
+    children.push(
+      new TextRun({ text: ` ${n}    `, font: FONT, size: 24 }),
+    );
+  }
+  return new Paragraph({
+    spacing: { before: 40, after: 80 },
+    children,
+  });
+}
+
 function checkboxParagraph(label: string, optionText: string): Paragraph {
   return new Paragraph({
     spacing: { after: 60 },
@@ -120,19 +136,17 @@ function subTaskBlocks(subTask: SubTask): (Paragraph | Table)[] {
     }),
   ];
 
-  if (subTask.interaction === "checkbox" && subTask.options?.length) {
+  if (isOrderNumbering(subTask) && subTask.interaction === "checkbox") {
+    blocks.push(orderNumberParagraph());
+  } else if (subTask.interaction === "checkbox" && subTask.options?.length) {
     for (const option of subTask.options) {
       blocks.push(checkboxParagraph("", option));
     }
   } else if (subTask.interaction === "order" && subTask.options?.length) {
-    for (const [index, option] of subTask.options.entries()) {
-      blocks.push(
-        body(`${index + 1}. ${option}`),
-        ...writingLines(1),
-      );
+    for (const option of subTask.options) {
+      blocks.push(body(option));
+      blocks.push(orderNumberParagraph());
     }
-    blocks.push(body("Skriv riktig rekkefølge (f.eks. 2–1–3–4–5):", true));
-    blocks.push(...writingLines(1));
   } else if (subTask.interaction === "table") {
     const headers = subTask.tableHeaders?.length
       ? subTask.tableHeaders

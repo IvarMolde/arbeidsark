@@ -1,7 +1,18 @@
 import type { SubTask, Worksheet } from "@/lib/schemas";
 
 const LABELS = ["a", "b", "c", "d", "e"] as const;
+export const ORDER_NUMBERS = ["1", "2", "3", "4", "5"] as const;
 export const MATCH_LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
+
+export function isOrderNumbering(subTask: SubTask): boolean {
+  if (subTask.interaction === "order") return true;
+  const options = subTask.options ?? [];
+  return (
+    subTask.interaction === "checkbox" &&
+    options.length >= 2 &&
+    options.every((opt) => /^[1-5]$/.test(opt.trim()))
+  );
+}
 
 export function shuffleCopy<T>(items: T[]): T[] {
   const next = [...items];
@@ -90,7 +101,8 @@ function parseOrderNumbers(
     .match(/\d+/g)
     ?.map(Number)
     .filter((n) => n >= 1 && n <= count);
-  if (nums && nums.length === count) return nums;
+  if (!nums?.length) return null;
+  if (nums.length === count || nums.length === 1) return nums;
   return null;
 }
 
@@ -161,8 +173,9 @@ function shuffleRekkefolgeSubtasks(
     return {
       ...st,
       label: LABELS[newIndex] ?? st.label,
-      interaction: "write" as const,
-      lines: st.lines && st.lines > 0 ? st.lines : 1,
+      interaction: "checkbox" as const,
+      options: [...ORDER_NUMBERS],
+      lines: 0,
       prompt: stripped.prompt,
       answer: String(chronologicalNumber),
     };
@@ -170,16 +183,69 @@ function shuffleRekkefolgeSubtasks(
 
   return {
     ...task,
-    instruction: /tilfeldig|blandet|tallet/i.test(task.instruction)
+    instruction: /kryss|tallet|rekkefølge/i.test(task.instruction)
       ? task.instruction
-      : "Les setningene. De står i tilfeldig rekkefølge. Skriv tallet 1–5 for når det skjer (1 = først).",
+      : "Les setningene. De står i tilfeldig rekkefølge. Kryss av tallet 1–5 for når det skjer (1 = først).",
     subTasks,
+  };
+}
+
+function convertRekkefolgeToNumberCheckboxes(
+  task: Worksheet["tasks"][number],
+): Worksheet["tasks"][number] {
+  return {
+    ...task,
+    instruction: /kryss|tallet|rekkefølge/i.test(task.instruction)
+      ? task.instruction
+      : "Les setningene. De står i tilfeldig rekkefølge. Kryss av tallet 1–5 for når det skjer (1 = først).",
+    subTasks: task.subTasks.map((st) => ({
+      ...st,
+      interaction: "checkbox" as const,
+      options: [...ORDER_NUMBERS],
+      lines: 0,
+      prompt: stripAnswerParenthetical(st.prompt).prompt,
+      answer: String(
+        parseOrderNumbers(st.answer, task.subTasks.length)?.[0] ??
+          st.answer ??
+          "",
+      ),
+    })),
   };
 }
 
 function normalizeOrderTask(
   task: Worksheet["tasks"][number],
 ): Worksheet["tasks"][number] {
+  const orderWithOptions = task.subTasks.find(
+    (st) => st.interaction === "order" && (st.options?.length ?? 0) >= 2,
+  );
+
+  if (task.typeId === "rekkefolge" && orderWithOptions?.options?.length) {
+    const options = orderWithOptions.options;
+    const nums =
+      parseOrderNumbers(orderWithOptions.answer, options.length) ??
+      options.map((_, i) => i + 1);
+    const items = options.map((prompt, i) => ({
+      prompt: stripAnswerParenthetical(prompt).prompt,
+      answer: nums[i] ?? i + 1,
+    }));
+    const exploded: Worksheet["tasks"][number] = {
+      ...task,
+      subTasks: items.map((item, i) => ({
+        label: LABELS[i] ?? String(i + 1),
+        prompt: item.prompt,
+        interaction: "checkbox" as const,
+        options: [...ORDER_NUMBERS],
+        lines: 0,
+        answer: String(item.answer),
+      })),
+    };
+    if (looksLikeChronologicalEvents(exploded)) {
+      return shuffleRekkefolgeSubtasks(exploded);
+    }
+    return convertRekkefolgeToNumberCheckboxes(exploded);
+  }
+
   let next: Worksheet["tasks"][number] = {
     ...task,
     subTasks: task.subTasks.map((st) =>
@@ -188,10 +254,13 @@ function normalizeOrderTask(
         : st,
     ),
   };
-  if (looksLikeChronologicalEvents(next)) {
-    next = shuffleRekkefolgeSubtasks(next);
+  if (task.typeId !== "rekkefolge") {
+    return next;
   }
-  return next;
+  if (looksLikeChronologicalEvents(next)) {
+    return shuffleRekkefolgeSubtasks(next);
+  }
+  return convertRekkefolgeToNumberCheckboxes(next);
 }
 
 function normalizeMatchTask(

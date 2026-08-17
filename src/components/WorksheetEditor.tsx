@@ -20,7 +20,9 @@ import {
 import {
   displayedMatchAnswers,
   isMatchTask,
+  isOrderNumbering,
   matchLetterForIndex,
+  ORDER_NUMBERS,
   normalizeInteractiveTasks,
   shuffledPermutation,
 } from "@/lib/taskNormalize";
@@ -51,6 +53,7 @@ function SubTaskEditor({
   const lines = subTask.lines ?? 0;
   const isCheckbox = subTask.interaction === "checkbox";
   const isWrite = subTask.interaction === "write" || !subTask.interaction;
+  const showOrderNumbers = isOrderNumbering(subTask);
 
   return (
     <div className="editor-subtask">
@@ -136,7 +139,7 @@ function SubTaskEditor({
           </>
         )}
 
-        {isCheckbox && (
+        {isCheckbox && !showOrderNumbers && (
           <button
             type="button"
             className="btn-chip"
@@ -161,7 +164,7 @@ function SubTaskEditor({
         </div>
       )}
 
-      {isCheckbox && (
+      {isCheckbox && !showOrderNumbers && (
         <div className="editor-options">
           {(subTask.options ?? []).map((opt, i) => (
             <div className="editor-option-row" key={i}>
@@ -196,20 +199,45 @@ function SubTaskEditor({
         </div>
       )}
 
+      {showOrderNumbers && subTask.interaction === "checkbox" && (
+        <div className="order-number-row" aria-label="Velg rekkefølge 1 til 5">
+          {ORDER_NUMBERS.map((n) => (
+            <span className="order-number-choice" key={n}>
+              <span className="checkbox-fake" aria-hidden="true">
+                <span />
+              </span>
+              {n}
+            </span>
+          ))}
+        </div>
+      )}
+
       {subTask.interaction === "order" && (
         <div className="editor-options">
           {(subTask.options ?? ["Hendelse 1", "Hendelse 2"]).map((opt, i) => (
-            <div className="editor-option-row" key={i}>
-              <span className="editor-label">{i + 1}.</span>
-              <input
-                className="editor-input"
-                value={opt}
-                onChange={(e) => {
-                  const options = [...(subTask.options ?? [])];
-                  options[i] = e.target.value;
-                  onChange({ ...subTask, options });
-                }}
-              />
+            <div key={i}>
+              <div className="editor-option-row">
+                <span className="editor-label">{i + 1}.</span>
+                <input
+                  className="editor-input"
+                  value={opt}
+                  onChange={(e) => {
+                    const options = [...(subTask.options ?? [])];
+                    options[i] = e.target.value;
+                    onChange({ ...subTask, options });
+                  }}
+                />
+              </div>
+              <div className="order-number-row" aria-label={`Rekkefølge for hendelse ${i + 1}`}>
+                {ORDER_NUMBERS.map((n) => (
+                  <span className="order-number-choice" key={n}>
+                    <span className="checkbox-fake" aria-hidden="true">
+                      <span />
+                    </span>
+                    {n}
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </div>

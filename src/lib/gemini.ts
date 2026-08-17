@@ -28,6 +28,66 @@ function extractJson(text: string): unknown {
   }
 }
 
+function expectedReadingCount(input: GenerateRequest): number {
+  if (input.documentKind === "prove") {
+    return Math.min(
+      Math.max(0, input.readingTextCount),
+      Math.max(0, input.taskCount),
+    );
+  }
+  return readingCount(input);
+}
+
+function readingFingerprint(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isDistinctReading(candidate: string, existing: string[]): boolean {
+  const fp = readingFingerprint(candidate);
+  if (fp.length < 50) return false;
+  return existing.every((other) => {
+    const o = readingFingerprint(other);
+    if (!o) return true;
+    if (fp === o) return false;
+    return fp.slice(0, 120) !== o.slice(0, 120);
+  });
+}
+
+function dedupeReadingTexts(
+  texts: Worksheet["readingTexts"],
+): Worksheet["readingTexts"] {
+  const kept: Worksheet["readingTexts"] = [];
+  for (const rt of texts) {
+    if (isDistinctReading(rt.text, kept.map((item) => item.text))) {
+      kept.push(rt);
+    }
+  }
+  return kept;
+}
+
+function assertReadingTexts(worksheet: Worksheet, expected: number): void {
+  if (expected < 1) return;
+  const unique = dedupeReadingTexts(worksheet.readingTexts);
+  if (unique.length < expected) {
+    throw new Error(
+      `Fant ikke gyldig JSON i AI-svaret. Forventet ${expected} ulike lesetekster, fikk ${unique.length}.`,
+    );
+  }
+}
+
+function exampleReadingTextJson(index: number, withAnswer: boolean): string {
+  const n = index + 1;
+  const answer = withAnswer ? ', "answer": "fasit"' : "";
+  return `{
+      "title": "Lesetekst ${n} – unik tittel og tema",
+      "text": "En selvstendig lesetekst nummer ${n} med andre personer, sted og handling enn de andre lesetekstene.",
+      "instruction": "Les teksten. Svar på spørsmålene.",
+      "subTasks": [
+        { "label": "a", "prompt": "spørsmål", "interaction": "write", "lines": 2${answer} }
+      ]
+    }`;
+}
+
 function readingCount(input: GenerateRequest): number {
   if (input.documentKind === "prove") {
     return Math.min(input.readingTextCount, Math.max(0, input.taskCount));
@@ -56,12 +116,7 @@ function buildPrompt(input: GenerateRequest): string {
   );
   const nonReadingTypes = taskTypes.filter((t) => t.id !== "lesetekst");
   const isProve = input.documentKind === "prove";
-  const texts = isProve
-    ? Math.min(
-        input.readingTextCount,
-        Math.floor(input.taskCount / 2),
-      ) // valgfrie lesetekster innen prøven
-    : readingCount(input);
+  const texts = expectedReadingCount(input);
   const otherTasks = isProve
     ? Math.max(0, input.taskCount - texts)
     : input.taskCount;
@@ -151,22 +206,15 @@ JSON-FORMAT (følg nøyaktig):
         : ""
     }
   },
-  "readingTexts": [
-    {
-      "title": "string",
-      "text": "lesetekst tilpasset nivået",
-      "instruction": "Les teksten. Svar på spørsmålene.",
-      "subTasks": [
-        {
-          "label": "a",
-          "prompt": "spørsmål eller oppgave",
-          "interaction": "write",
-          "lines": 2,
-          "answer": "fasitsvar"
-        }
-      ]
-    }
-  ],
+  "readingTexts": ${
+    texts < 1
+      ? "[]"
+      : `[
+    ${Array.from({ length: texts }, (_, i) =>
+      exampleReadingTextJson(i, input.includeAnswerKey),
+    ).join(",\n    ")}
+  ]`
+  },
   "tasks": [
     {
       "title": "Oppgavetittel",
@@ -185,13 +233,27 @@ JSON-FORMAT (følg nøyaktig):
     }
   ],
   "answerKey": {
-    "readingTexts": [{"title":"...","answers":[{"label":"a","answer":"..."}]}],
+    "readingTexts": ${
+      texts < 1
+        ? "[]"
+        : `[${Array.from(
+            { length: texts },
+            (_, i) =>
+              `{"title":"Lesetekst ${i + 1}","answers":[{"label":"a","answer":"..."}]}`,
+          ).join(", ")}]`
+    },
     "tasks": [{"title":"...","answers":[{"label":"a","answer":"..."}]}]
   }
 }
 
 REGLER FOR ANTALL:
 - readingTexts skal ha nøyaktig ${texts} elementer.
+- Hver lesetekst MÅ være en HELT NY, selvstendig tekst (ulik tittel, personer, sted og handling). Ikke kopier eller omskriv den første teksten.
+${
+  texts > 1
+    ? `- Du SKAL lage ${texts} ulike lesetekster. Hvis du bare lager én, er svaret ugyldig.`
+    : ""
+}
 - tasks skal ha nøyaktig ${otherTasks} elementer.
 - Hver subTasks-array skal ha nøyaktig 5 elementer med label a, b, c, d, e.
 - typeId for tasks må være en av: ${
@@ -203,7 +265,7 @@ REGLER FOR ANTALL:
 - Hvis fasit skal med: fyll answerKey komplett, og legg "answer" på hver subTask.
 
 SPESIELLE OPPGAVETYPER (viktig):
-- rekkefolge: Hver deloppgave a–e er ÉN setning/hendelse. Setningene MÅ stå i BLANDET rekkefølge, ALDRI kronologisk. interaction="write", lines=1. answer = tallet 1–5 for når det skjer (1 = først). Ikke skriv tallet eller fasit i prompt-teksten.
+- rekkefolge: Hver deloppgave a–e er ÉN setning/hendelse. Setningene MÅ stå i BLANDET rekkefølge, ALDRI kronologisk. interaction="checkbox", options=["1","2","3","4","5"]. Eleven krysser av tallet 1–5 for når det skjer (1 = først). answer = tallet som er riktig, f.eks. "3". Ikke skriv tallet eller fasit i prompt-teksten.
 - koble-sammen: Hver deloppgave er ett utsagn eller spørsmål. prompt = KUN utsagnet, uten fasit og uten parentes. answer = svaret som hører til (egen tekst). interaction="match". FORBUDT: "Hvor bor du? (Jeg bor i Molde)". Vi viser svarene i en egen, blandet liste.`;
 }
 
@@ -276,6 +338,97 @@ function normalizeWorksheet(
   };
 }
 
+const extraReadingsSchema = z.object({
+  readingTexts: z.array(worksheetSchema.shape.readingTexts.element).min(1),
+});
+
+async function ensureReadingTexts(
+  model: ReturnType<GoogleGenerativeAI["getGenerativeModel"]>,
+  worksheet: Worksheet,
+  input: GenerateRequest,
+): Promise<Worksheet> {
+  const expected = expectedReadingCount(input);
+  if (expected < 1) return worksheet;
+
+  const unique = dedupeReadingTexts(worksheet.readingTexts);
+  let current: Worksheet = { ...worksheet, readingTexts: unique };
+  const missing = expected - current.readingTexts.length;
+  if (missing <= 0) return current;
+
+  const domain = DOMAINS.find((d) => d.id === input.domainId);
+  const existing = current.readingTexts
+    .map(
+      (rt, i) =>
+        `${i + 1}. Tittel: ${rt.title}\nTekst (utdrag): ${rt.text.slice(0, 220)}`,
+    )
+    .join("\n\n");
+
+  const prompt = `Du er en erfaren lærer i norsk for voksne innvandrere.
+Lag ${missing} HELT NYE, selvstendige lesetekster på bokmål for nivå ${input.level}.
+Domene: ${domain?.title ?? input.domainId}.
+Hver tekst skal ha 5 deloppgaver a–e.
+
+KRAV:
+- Ikke kopier eller omskriv tekstene under.
+- Ny tittel, nye personer, nytt sted og ny handling i hver tekst.
+- Minst ca. 80 ord per lesetekst.
+- Svar med KUN gyldig JSON.
+
+EKSISTERENDE TEKSTER (ikke gjenbruk):
+${existing || "(ingen)"}
+
+JSON-FORMAT:
+{
+  "readingTexts": [
+    ${Array.from({ length: missing }, (_, i) =>
+      exampleReadingTextJson(
+        current.readingTexts.length + i,
+        input.includeAnswerKey,
+      ),
+    ).join(",\n    ")}
+  ]
+}`;
+
+  const result = await model.generateContent(prompt);
+  const parsed = extraReadingsSchema.parse(extractJson(result.response.text()));
+  const extras = parsed.readingTexts
+    .filter((rt) =>
+      isDistinctReading(
+        rt.text,
+        current.readingTexts.map((item) => item.text),
+      ),
+    )
+    .slice(0, missing);
+
+  if (extras.length < 1) {
+    throw new Error(
+      `Fant ikke gyldig JSON i AI-svaret. Forventet ${expected} ulike lesetekster, fikk ${current.readingTexts.length}.`,
+    );
+  }
+
+  current = {
+    ...current,
+    readingTexts: [...current.readingTexts, ...extras],
+    answerKey: current.answerKey
+      ? {
+          ...current.answerKey,
+          readingTexts: [
+            ...current.answerKey.readingTexts,
+            ...extras.map((rt) => ({
+              title: rt.title,
+              answers: rt.subTasks.map((st) => ({
+                label: st.label,
+                answer: st.answer ?? "",
+              })),
+            })),
+          ],
+        }
+      : current.answerKey,
+  };
+
+  return normalizeWorksheet(current, input);
+}
+
 export async function generateWorksheet(
   input: GenerateRequest,
 ): Promise<Worksheet> {
@@ -292,17 +445,22 @@ export async function generateWorksheet(
     model: modelName,
     generationConfig: {
       temperature: 0.9,
+      maxOutputTokens: 16384,
       responseMimeType: "application/json",
     },
   });
 
+  const expectedTexts = expectedReadingCount(input);
+  const attempts = expectedTexts > 1 ? 3 : 2;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       const result = await model.generateContent(buildPrompt(input));
       const text = result.response.text();
       const parsed = extractJson(text);
-      const worksheet = normalizeWorksheet(worksheetSchema.parse(parsed), input);
+      let worksheet = normalizeWorksheet(worksheetSchema.parse(parsed), input);
+      worksheet = await ensureReadingTexts(model, worksheet, input);
+      assertReadingTexts(worksheet, expectedTexts);
 
       if (!input.includeAnswerKey) {
         return {
@@ -325,7 +483,7 @@ export async function generateWorksheet(
         message.includes("Fant ikke gyldig") ||
         message.includes("503") ||
         message.toLowerCase().includes("overloaded");
-      if (!retryable || attempt === 1) {
+      if (!retryable || attempt === attempts - 1) {
         throw error;
       }
     }
@@ -390,7 +548,7 @@ ${grammarTopics.length ? `- Grammatikkfokus: ${grammarTopics.map((g) => `${g.tit
 - Hver oppgave/lesetekst skal ha nøyaktig 5 deloppgaver a–e.
 - typeId for vanlig oppgave må være en av: ${nonReadingTypes.map((t) => t.id).join(", ")}
 ${isProve ? "- Ikke skriv poeng på hver deloppgave. Poeng står bare øverst i dokumentet." : ""}
-- Hvis typeId er rekkefolge: setningene a–e MÅ stå i blandet rekkefølge. answer = tallet 1–5 (1 = først). Ikke list hendelsene kronologisk.
+- Hvis typeId er rekkefolge: setningene a–e MÅ stå i blandet rekkefølge. interaction="checkbox", options=["1","2","3","4","5"]. answer = tallet 1–5 (1 = først). Ikke list hendelsene kronologisk.
 - Hvis typeId er koble-sammen: prompt er KUN utsagnet. answer er svaret. interaction="match". ALDRI fasit i parentes.
 - Svar med KUN gyldig JSON.
 

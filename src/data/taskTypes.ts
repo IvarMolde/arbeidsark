@@ -37,7 +37,7 @@ export const TASK_TYPES: TaskType[] = [
     id: "rekkefolge",
     title: "Hendelser i riktig rekkefølge",
     description:
-      "Setninger i blandet rekkefølge. Eleven skriver tallet for når det skjer.",
+      "Setninger i blandet rekkefølge. Eleven krysser av tallet 1–5 for når det skjer.",
     interaction: "order",
   },
   {
